@@ -1,3 +1,7 @@
+hexboard.py
+main.py
+player.py
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
