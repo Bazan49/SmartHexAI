@@ -1,7 +1,5 @@
 import time
 import heapq
-import sys
-from numpy import size
 from board import HexBoard
 import random
 import math
@@ -13,7 +11,6 @@ class SmartPlayer(Player):
     def play(self, board: HexBoard) -> tuple:
         
         root = MCTS_Node(board.clone(), 3 - self.player_id, None, None)
-        root.compute_paths()
 
         # Si tengo un camino ganador de costo 1, juego en ese camino para ganar
 
@@ -34,26 +31,38 @@ class SmartPlayer(Player):
         return best_child.move
 
 class MCTS_Node:
+
     def __init__(self, board: HexBoard, player_id: int, parent: MCTS_Node, move: tuple):
-        self.board = board 
-        self.parent = parent
-        self.children = []
+
+        self.board = board # estado del tablero en este nodo
+        self.parent = parent # nodo padre
+        self.children = [] # nodos hijos
+
+        # Estadísticas MCTS
         self.wins = 0
         self.visits = 0
+
         self.move = move  # Movimiento que llevó a este nodo (fila, col)
         self.player_id = player_id  # Jugador que puso la ultima ficha en ese tablero
-        self.untried_moves = self.LegalMoves() # Movimientos legales no explorados
+        self.legal_moves = self.LegalMoves() # Movimientos legales desde este nodo
+        self.untried_moves = self.legal_moves.copy() # Movimientos legales no explorados
+
+        # Estadísticas RAVE
         self.rave_wins = defaultdict(int)
         self.rave_visits = defaultdict(int)
 
-        # Cosas de Dijkstra
-        self.my_cost = None
-        self.opp_cost = None
-        self.my_path = None
-        self.opp_path = None
+        
+        self.my_cost = None # costo de mi camino ganador más corto
+        self.opp_cost = None # costo de camino ganador más corto del oponente
+        self.my_path = None # camino ganador más corto para mí
+        self.opp_path = None # camino ganador más corto para el oponente
+
+        self.compute_paths() 
 
 
     def compute_paths(self):
+
+        """Calcula caminos ganadores más cortos para ambos jugadores"""
 
         size = self.board.size
         me = self.Next_Player()
@@ -65,6 +74,8 @@ class MCTS_Node:
 
     @staticmethod
     def MCTS(root_state: MCTS_Node, time_limit: float, C: float = 1.41, k: int = 300):
+
+        """Realiza el proceso MCTS desde el nodo raíz durante un tiempo limitado; devuelve el mejor movimiento encontrado"""
 
         start_time = time.perf_counter()
 
@@ -92,9 +103,15 @@ class MCTS_Node:
         return best_child
 
     def is_fully_expanded(self):
+
+        """Un nodo está completamente expandido si no tiene movimientos legales sin explorar"""
+
         return len(self.untried_moves) == 0
 
     def Next_Player(self):
+            
+            """"Devuelve el id del siguiente jugador"""
+
             return 3 - self.player_id # Cambia entre 1 y 2
 
     def LegalMoves(self):
@@ -125,6 +142,9 @@ class MCTS_Node:
         return Beta * Q_Rave + (1 - Beta) * Q_MCTS + C * exploration
     
     def best_child(self, C, k):
+
+        """Devuelve el hijo con mayor valor UCT"""
+
         best_score = -float("inf")
         best_node = None
 
@@ -140,11 +160,39 @@ class MCTS_Node:
     
     def expansion(self):
 
-        i = random.randrange(len(self.untried_moves))
-        move = self.untried_moves[i]
-        self.untried_moves[i] = self.untried_moves[-1]
-        self.untried_moves.pop() # Sacar un movimiento no explorado
+        """Expande el nodo eligiendo un movimiento no explorado con prioridad basada en caminos ganadores"""
 
+         # Convertir los paths a sets para búsquedas rápidas
+        my_path_set = set(self.my_path)
+        opp_path_set = set(self.opp_path)
+
+        # Generar lista de movimientos prioritarios
+        priorities = []
+
+        for move in self.untried_moves:
+            r, c = move
+
+            score = 0
+
+            if move in my_path_set:
+                score += 10  # favorece mi camino
+            if move in opp_path_set:
+                score += 5   # bloquea camino del rival
+            if self.my_cost == 1 and move in my_path_set:
+                score += 100  # ganar inmediatamente
+            if self.opp_cost == 1 and move in opp_path_set:
+                score += 50   # bloquear derrota inmediata
+
+            priorities.append((score, move))
+
+        #  Ordenar por prioridad
+        priorities.sort(key=lambda x: x[0], reverse=True)
+
+        #  Elegir primero de la lista ordenada
+        _, move = priorities[0]
+
+        #  Quitar de untried_moves y crear el nodo hijo
+        self.untried_moves.remove(move)
         new_board = self.board.clone()
         next_player = self.Next_Player()
         new_board.place_piece(move[0], move[1], next_player)
@@ -154,47 +202,28 @@ class MCTS_Node:
     
     def simulation(self):
 
+        """Realiza una simulación aleatoria desde el estado actual del nodo; devuelve el ganador y los movimientos jugados"""
+
         board = self.board.clone()
         player = self.Next_Player()
-        last_move = None
-
+        
         # obtener movimientos legales
-        moves = []
-        for r in range(board.size):
-            for c in range(board.size):
-                if board.board[r][c] == 0:
-                    moves.append((r, c))
+        moves = self.legal_moves.copy()
 
         played_moves = []
 
         while(moves):
 
-            if(last_move is not None):
-
-                move = self.check_real_bridge_threat(board, player, last_move)
-                if(move is not None):
-                    # Defender MI bridge atacado
-                    moves.remove(move)
-
-                else:
-                    i = random.randrange(len(moves))
-                    move = moves[i]
-                    moves[i] = moves[-1]
-                    moves.pop()
-
-            else:
-                i = random.randrange(len(moves))
-                move = moves[i]
-                moves[i] = moves[-1]
-                moves.pop()
+            i = random.randrange(len(moves))
+            move = moves[i]
+            moves[i] = moves[-1]
+            moves.pop()
 
             played_moves.append((move, player))
 
             board.place_piece(move[0], move[1], player)
 
-            last_move = move
-
-            player = 3 - player # Cambiar de jugador (1 <-> 2)
+            player = 3 - player 
 
         if(board.check_connection(3 - player)):
             return 3 - player, played_moves
@@ -203,6 +232,8 @@ class MCTS_Node:
 
 
     def backpropagation(self, winner: int, played_moves = None):
+
+        """Actualiza las estadísticas de este nodo y sus ancestros según el resultado de la simulación"""
 
         node = self
 
@@ -222,6 +253,11 @@ class MCTS_Node:
             node = node.parent
 
     def get_neighbors(self, row: int, col: int):
+
+        """Devuelve las coordenadas de los vecinos de una celda en el tablero hexagonal"""
+
+        size = self.board.size
+
         if row % 2 == 0: #Fila par
             deltas = [(-1, -1), (-1, 0), (0, -1), (0, 1), (1, -1), (1, 0)]
         else:
@@ -229,63 +265,30 @@ class MCTS_Node:
 
         for dr, dc in deltas:
             nr, nc = row + dr, col + dc
-            if 0 <= nr < self.board.size and 0 <= nc < self.board.size:
+            if 0 <= nr < size and 0 <= nc < size:
                 yield nr, nc
 
-    # MoHex utiliza un solo patrón durante la simulación de juegos aleatorios: 
-    # si un jugador explora cualquier puente del oponente, entonces el oponente siempre 
-    # responde de manera que mantenga la conexión. Si se exploran varios puentes simultáneamente,
-    # entonces uno de esos puentes se selecciona al azar y luego se mantiene.
-
-    def check_real_bridge_threat(self, board, player, candidate_move):
-        """Detecta mis bridges amenazados por último movimiento del oponente"""
-        opponent = 3 - player
-        r, c = candidate_move
-        
-        # 1. Encontrar MIS piedras cerca del movimiento oponente
-        my_stones_near = []
-        for nr, nc in self.get_neighbors(r, c):  # Vecinos del oponente
-            if (board.board[nr][nc] == player):  # MÍA
-                my_stones_near.append((nr, nc))
-        
-        # 2. Si tengo ≥2 piedras mías cerca, buscar vecino_común VACÍO
-        if len(my_stones_near) >= 2:
-            for stone1 in my_stones_near:
-                for stone2 in my_stones_near:
-                    if stone1 != stone2:
-                        # Vecinos compartidos entre mis dos piedras
-                        neighbors1 = set(self.get_neighbors(*stone1))
-                        neighbors2 = set(self.get_neighbors(*stone2))
-                        common_neighbors = neighbors1 & neighbors2
-                        
-                        # 3. ¡BRIDGE ENCONTRADO! Vecino común VACÍO
-                        for common_pos in common_neighbors:
-                            cr, cc = common_pos
-                            if (board.board[cr][cc] == 0):  # VACÍO
-                                return (cr, cc)  # ¡DEFENDER AQUÍ!
-        
-        return None
     
-    # Implementacion de caminos
+    # Para evaluar caminos ganadores más cortos, representamos el tablero como un grafo 
+    # donde cada celda es un nodo y las aristas conectan celdas adyacentes. 
+    # El costo de cada arista depende de si la celda está vacía (costo 1), ocupada por mí (costo 0) 
+    # o por el oponente (costo infinito). Luego, aplicamos Dijkstra para encontrar el 
+    # camino de costo mínimo desde mi lado del tablero hasta el lado opuesto, y lo mismo para el oponente.
 
     def GetShortestWinnerPath (self, board, size, player_id):
 
-        adj, SOURCE, TARGET = self.board_to_graph_with_sides(board, size, player_id)
+        """Devuelve el costo y camino ganador más corto para el jugador dado en el tablero"""
 
-        dist, parent = self.dijkstra(adj, SOURCE)
+        adj, source, target = self.board_to_graph_with_sides(board, size, player_id)
 
-        cost = dist[TARGET]
+        dist, parent = self.dijkstra(adj, source)
 
-        path = self.get_path(parent, TARGET)
+        cost = dist[target]
 
-        real_path = []
+        path = self.get_path(parent, target, size)
 
-        for node in path:
-            if node < size * size:  # ignorar SOURCE y TARGET
-                r, c = self.to_coord(node, size)
-                real_path.append((r, c))
 
-        return cost, real_path
+        return cost, path
     
     def to_coord(self, idx, size):
         return (idx // size, idx % size)
@@ -349,43 +352,50 @@ class MCTS_Node:
 
         V = len(adj)
 
-        # Min-heap (priority queue) storing pairs of (distance, node)
+        # Min-heap (priority queue) para seleccionar el nodo con la distancia más corta no finalizado
         pq = []
 
-        dist = [sys.maxsize] * V
+        dist = [float('inf')] * V
         parent = [-1] * V
 
-        # Distance from source to itself is 0
+        # Inicializar la distancia del nodo fuente a 0 y agregarlo a la cola
         dist[src] = 0
         heapq.heappush(pq, (0, src))
 
-        # Process the queue until all reachable vertices are finalized
+        # Mientras haya nodos por explorar
         while pq:
             d, u = heapq.heappop(pq)
 
-            # If this distance not the latest shortest one, skip it
+            # Si la distancia extraída es mayor que la distancia actual, ignorar
             if d > dist[u]:
                 continue
 
-            # Explore all neighbors of the current vertex
+            # Explorar vecinos de u
             for v, w in adj[u]:
 
-                # If we found a shorter path to v through u, update it
+                # Si se encuentra un camino más corto a v a través de u, actualizar la distancia y el padre
                 if dist[u] + w < dist[v]:
                     dist[v] = dist[u] + w
                     parent[v] = u
                     heapq.heappush(pq, (dist[v], v))
 
-        # Return the final shortest distances from the source
+        # Devolver las distancias y los padres para reconstruir caminos
         return dist, parent
     
-    def get_path(self, parent, target):
+    def get_path(self, parent, target, size):
+
+        """Reconstruye el camino desde el nodo fuente hasta el nodo objetivo usando la lista de padres"""
+
         path = []
         cur = target
 
         while cur != -1:
-            path.append(cur)
+            # ignorar source y target
+            if cur < size * size:
+                r, c = self.to_coord(cur, size)
+                path.append((r,c))
             cur = parent[cur]
 
         path.reverse()
         return path
+    
