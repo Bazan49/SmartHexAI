@@ -1,10 +1,10 @@
 import time
 import heapq
-from board import HexBoard
 import random
 import math
-from player import Player
 from collections import defaultdict
+from player import Player
+from board import HexBoard
 
 class SmartPlayer(Player):
     
@@ -26,7 +26,7 @@ class SmartPlayer(Player):
                 if root.board.board[r][c] == 0:
                     return (r, c)
 
-        best_child = root.MCTS(root, 4.7, 1.0, 300)
+        best_child = root.MCTS(root, 4.9, 1.0, 314)
 
         return best_child.move
 
