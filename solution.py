@@ -26,7 +26,7 @@ class SmartPlayer(Player):
                 if root.board.board[r][c] == 0:
                     return (r, c)
 
-        best_child = root.MCTS(root, 4.9, 1.0, 300)
+        best_child = root.MCTS(root, 4.7, 1.0, 300)
 
         return best_child.move
 
@@ -258,10 +258,10 @@ class MCTS_Node:
 
         size = self.board.size
 
-        if row % 2 == 0: #Fila par
-            deltas = [(-1, -1), (-1, 0), (0, -1), (0, 1), (1, -1), (1, 0)]
+        if row % 2 == 1: 
+            deltas = [(-1, -1), (-1, 0), (0, -1), (0, 1), (1, -1), (1, 0)] # direcciones impares
         else:
-            deltas = [(-1, 0), (-1, 1), (0, -1), (0, 1), (1, 0), (1, 1)]
+            deltas = [(-1, 0), (-1, 1), (0, -1), (0, 1), (1, 0), (1, 1)] # direcciones pares
 
         for dr, dc in deltas:
             nr, nc = row + dr, col + dc
